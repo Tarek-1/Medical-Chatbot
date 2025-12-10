@@ -1,67 +1,100 @@
-# data_loader.py — loads PDF documents and prepares text chunks for embeddings.
+# data_loader.py: loads a single PDF and prepares text chunks for embeddings.
 
-from langchain.document_loaders import DirectoryLoader, PyPDFLoader
+from pathlib import Path
+from langchain.document_loaders import PyMuPDFLoader
 from langchain.schema import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 
-# from config.py → constants and paths
 from .config import DATA_PATH, INDEX_NAME, EMBEDDING_MODEL
-
-# from retriever.py → embedding model + Pinecone index setup
 from .retriever import get_embeddings, init_pinecone, get_vectorstore
 
-
-# Loads all PDF files from the data directory defined in config.py.
-def load_pdf_files(data_dir=DATA_PATH):
-    loader = DirectoryLoader(data_dir, glob="*.pdf", loader_cls=PyPDFLoader)
-    return loader.load()
+import re
 
 
-# Cleans metadata and keeps only the essential fields: source and page.
+def clean_text(text: str) -> str:
+    # remove soft hyphens that break words
+    text = text.replace("\xad", "")
+
+    # remove hyphenation happening across line breaks
+    text = re.sub(r"-\s*\n\s*", "", text)
+
+    # convert single newlines into spaces
+    text = text.replace("\n", " ")
+
+    # return normalized text
+    return text.strip()
+
+
 def filter_to_minimal_docs(docs):
+    # reduce metadata and apply text cleaning per page
     minimal_docs = []
     for doc in docs:
-        src = doc.metadata["source"]
-        page = doc.metadata["page"]
+        src = doc.metadata.get("source", "")
+        page = doc.metadata.get("page", 0)
+        cleaned = clean_text(doc.page_content)
+
         minimal_docs.append(
             Document(
-                page_content=doc.page_content,
+                page_content=cleaned,
                 metadata={"source": src, "page": page},
             )
         )
     return minimal_docs
 
 
-# Splits documents into overlapping text chunks for embedding and retrieval.
 def split_documents(docs):
+    # split pages into overlapping chunks for embedding
     splitter = RecursiveCharacterTextSplitter(
-        chunk_size=500,
-        chunk_overlap=20
+        chunk_size=550,      # target chunk size
+        chunk_overlap=70     # overlap to preserve context
     )
     return splitter.split_documents(docs)
 
 
-# Creates embeddings and uploads document chunks into Pinecone.
 def store_embeddings(chunks):
-    embeddings = get_embeddings(EMBEDDING_MODEL)     # ← from retriever.py
-    init_pinecone()                                  # ← from retriever.py
-    vectorstore = get_vectorstore(embedding=embeddings, index_name=INDEX_NAME)  # ← from retriever.py
+    # initialize embedding model
+    embeddings = get_embeddings(EMBEDDING_MODEL)
+
+    # ensure Pinecone index exists
+    init_pinecone()
+
+    # load vectorstore reference
+    vectorstore = get_vectorstore(
+        embedding=embeddings,
+        index_name=INDEX_NAME
+    )
+
+    # upload encoded document chunks to Pinecone
     vectorstore.add_documents(chunks)
-    return vectorstore
 
 
-# Main pipeline to prepare and upload data.
-def prepare_data():
-    print("Loading PDF files...")
-    documents = load_pdf_files()
+def process_single_pdf(pdf_path: Path):
+    # load a PDF and extract page-level documents
+    loader = PyMuPDFLoader(str(pdf_path))
+    docs = loader.load()
 
-    print("Cleaning metadata...")
-    minimal_docs = filter_to_minimal_docs(documents)
+    # clean pages and strip metadata
+    minimal_docs = filter_to_minimal_docs(docs)
 
-    print("Splitting into chunks...")
+    # convert pages into smaller semantic chunks
     chunks = split_documents(minimal_docs)
 
-    print("Uploading embeddings to Pinecone...")
+    # store chunks in Pinecone
     store_embeddings(chunks)
+
+
+def prepare_data():
+    # fetch all PDFs from the data directory
+    print("Loading PDF files from data directory...")
+    pdf_files = list(Path(DATA_PATH).glob("*.pdf"))
+
+    if not pdf_files:
+        print("No PDF files found in data directory.")
+        return
+
+    # process each PDF sequentially
+    for pdf_path in pdf_files:
+        print(f"Processing PDF: {pdf_path.name}")
+        process_single_pdf(pdf_path)
 
     print("...Data preparation complete...")

@@ -15,6 +15,9 @@ touch src/retriever.py
 touch src/llm_interface.py
 touch src/prompts.py
 touch src/chatbot.py
+touch src/source_manager.py
+touch src/startup.py
+touch src/summary_memory.py
 
 # Create frontend files
 touch templates/index.html
@@ -34,3 +37,5 @@ touch research/trials.ipynb
 
 # Display structure summary
 echo "Directory structure created:"
+
+ls -R

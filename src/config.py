@@ -9,9 +9,10 @@ load_dotenv()
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
-# Model and index settings
 INDEX_NAME = "medical-chatbot"
-EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+
+EMBEDDING_MODEL = "BAAI/bge-m3"
+
 GEMINI_MODEL = "models/gemini-flash-latest"
 
 # Paths
